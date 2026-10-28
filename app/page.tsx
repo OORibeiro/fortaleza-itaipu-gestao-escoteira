@@ -116,6 +116,32 @@ export default function Home() {
     catch (error) { failure(error); }
     finally { writing.current = false; setSaving(false); setSavingDueId(null); }
   }
+  async function generateDues(input: {
+    branch_id: number;
+    reference_month: string;
+    amount: number;
+    due_day: number;
+  }) {
+    if (!session || writing.current) return;
+
+    writing.current = true;
+    setSaving(true);
+
+    try {
+      const result = await financeService.generateDues(session.token, input);
+      setToast({
+        message: result.message || "Solicitação de geração concluída.",
+        kind: "success",
+      });
+      await refresh();
+    } catch (error) {
+      failure(error);
+      throw error instanceof Error ? error : new Error("Não foi possível gerar as mensalidades.");
+    } finally {
+      writing.current = false;
+      setSaving(false);
+    }
+  }
   if (!session) return <Login notice={notice} onLogin={(value) => { setLoading(true); setNotice(""); setSession(value); }} />;
   if (session.user.mustChangePassword) return <ChangePassword session={session} onDone={() => logout("Senha alterada. Entre com sua nova senha.")} onCancel={() => logout()} />;
   return <main className="app-shell">
@@ -130,7 +156,17 @@ export default function Home() {
         <p className="month-note">Resumos e relatórios de mensalidades consideram o mês selecionado. Movimentações financeiras mantêm seus próprios filtros de período.</p>
         {loading ? <div className="remote-state" role="status">Carregando dados do grupo...</div> : loadError ? <div className="remote-state" role="alert"><p>{loadError}</p><button className="primary-button" onClick={() => void refresh()}>Tentar novamente</button></div> : <>
           {view === "finance" && <FinanceView transactions={transactions} dues={dues} onOpenModal={openNewTransaction} onShowDues={() => chooseView("dues")} onEditTransaction={editTransaction} onDeleteTransaction={deleteTransaction} />}
-          {view === "dues" && <DuesView referenceMonth={month} dues={dues} onMarkPaid={markPaid} savingId={savingDueId} />}
+          
+<DuesView
+  referenceMonth={month}
+  dues={dues}
+  onMarkPaid={markPaid}
+  savingId={savingDueId}
+  branches={branches}
+  saving={saving}
+  onGenerate={generateDues}
+/>
+
           {view === "reports" && <ReportsView transactions={transactions} dues={dues} />}
           {view === "overview" && <OverviewView transactions={transactions} dues={dues} onOpenTransaction={openNewTransaction} onChooseView={chooseView} onRefresh={() => void refresh()} />}
         </>}

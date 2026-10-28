@@ -55,4 +55,16 @@ export const financeService = {
   update: (token: string, id: number, input: TransactionInput) => request(`/finances/${id}`, token, "PUT", transactionPayload(input)),
   remove: (token: string, id: number) => request(`/finances/${id}`, token, "DELETE"),
   pay: (token: string, id: number) => request(`/dues/${id}/pay`, token, "PUT"),
+    generateDues: (
+    token: string,
+    input: {
+      branch_id: number;
+      reference_month: string;
+      amount: number;
+      due_day: number;
+    },
+  ) => request<{
+    message: string;
+    dues: Row[];
+  }>("/dues/generate", token, "POST", input),
 };

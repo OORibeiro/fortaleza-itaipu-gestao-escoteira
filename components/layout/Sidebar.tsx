@@ -16,7 +16,7 @@ export function Sidebar({ view, mobileOpen, onChooseView }: SidebarProps) {
         <ScoutMark />
         <div>
           <strong>Fortaleza de Itaipu</strong>
-          <span>Grupo Escoteiro 45º</span>
+          <span>Grupo Escoteiro 455º</span>
         </div>
       </div>
 
