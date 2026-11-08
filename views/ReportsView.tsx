@@ -1,5 +1,7 @@
 "use client";
 
+import { DateInput } from "@/components/ui/DateInput";
+
 import { useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Download, Printer, Scale, WalletCards } from "lucide-react";
 import type { Due, Transaction } from "@/types/app";
@@ -216,8 +218,8 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
             ))}
           </div>
         </div>
-        <label><span>De</span><input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPreset("all"); }} /></label>
-        <label><span>Até</span><input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPreset("all"); }} /></label>
+        <DateInput label="De" value={dateFrom} onChange={(value) => { setDateFrom(value); setPreset("all"); }} />
+        <DateInput label="Até" value={dateTo} onChange={(value) => { setDateTo(value); setPreset("all"); }} />
         <div className="report-actions"><button className="report-print" onClick={() => window.print()} disabled={invalidRange}><Printer size={16} /> Imprimir / PDF</button><button className="report-export" onClick={exportReport} disabled={invalidRange || (!filteredTransactions.length && !filteredDues.length)}><Download size={16} /> Exportar CSV</button></div>
       </section>
 

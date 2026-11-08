@@ -26,6 +26,7 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [view, setView] = useState<View>("finance");
   const [month, setMonth] = useState(currentMonth);
+  const [duesPeriod, setDuesPeriod] = useState(1);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dues, setDues] = useState<Due[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -50,7 +51,7 @@ export default function Home() {
     const version = ++generation.current;
     setLoading(true); setLoadError("");
     try {
-      const [data, branchList] = await Promise.all([financeService.load(session.token, month), financeService.branches(session.token)]);
+      const [data, branchList] = await Promise.all([financeService.load(session.token, month, duesPeriod), financeService.branches(session.token)]);
       if (version !== generation.current) return;
       setTransactions(data.transactions); setDues(data.dues); setBranches(branchList);
     } catch (error) {
@@ -59,7 +60,16 @@ export default function Home() {
       if (error instanceof ApiError && error.status === 401) logout("Sua sessão expirou. Entre novamente.");
       else setLoadError(errorText(error));
     } finally { if (version === generation.current) setLoading(false); }
-  }, [session, month, logout]);
+  }, [session, month, duesPeriod, logout]);
+  const loadMembers = useCallback(async (branchId: number) => {
+    if (!session) throw new Error("Entre novamente para carregar os membros.");
+    try {
+      return await financeService.membersForDues(session.token, branchId);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) logout("Sua sessão expirou. Entre novamente.");
+      throw error;
+    }
+  }, [session, logout]);
   const invalidate = useCallback(() => { generation.current++; }, []);
   useEffect(() => {
     const timer = setTimeout(() => { void refresh(); }, 0);
@@ -116,8 +126,30 @@ export default function Home() {
     catch (error) { failure(error); }
     finally { writing.current = false; setSaving(false); setSavingDueId(null); }
   }
+  async function updateDue(id: number, input: { amount: number; due_date: string }) {
+    if (!session || writing.current) throw new Error("Aguarde a operação atual terminar.");
+    writing.current = true; setSaving(true);
+    try {
+      await financeService.updateDue(session.token, id, input);
+      setToast({ message: "Mensalidade atualizada.", kind: "success" });
+      await refresh();
+    } catch (error) { failure(error); throw error; }
+    finally { writing.current = false; setSaving(false); }
+  }
+  async function deleteDue(due: Due) {
+    if (!session || writing.current || due.status === "paid") return;
+    if (!window.confirm(`Excluir a mensalidade de ${due.memberName}, referência ${due.referenceMonth.split("-").reverse().join("/")}, no valor de R$ ${(due.amountCents / 100).toFixed(2).replace(".", ",")}? Esta ação não pode ser desfeita.`)) return;
+    writing.current = true; setSaving(true);
+    try {
+      await financeService.deleteDue(session.token, due.id);
+      setToast({ message: "Mensalidade excluída.", kind: "success" });
+      await refresh();
+    } catch (error) { failure(error); }
+    finally { writing.current = false; setSaving(false); }
+  }
   async function generateDues(input: {
     branch_id: number;
+    member_id: number;
     reference_month: string;
     amount: number;
     due_day: number;
@@ -152,20 +184,26 @@ export default function Home() {
       <div className="content">
         <div className="remote-toolbar"><span>{session.user.name}</span><button disabled={saving || loading} onClick={() => void refresh()}>Atualizar</button><button disabled={saving} onClick={() => logout()}>Sair</button></div>
         <PageHeading view={view} disabled={saving || loading || Boolean(loadError)} onOpenTransaction={openNewTransaction} />
-        <label className="remote-month">Mês das mensalidades <input type="month" value={month} disabled={saving} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setLoading(true); setMonth(event.target.value); } }} /></label>
-        <p className="month-note">Resumos e relatórios de mensalidades consideram o mês selecionado. Movimentações financeiras mantêm seus próprios filtros de período.</p>
+        {view !== "dues" && <label className="remote-month">Mês final das mensalidades <input type="month" value={month} disabled={saving} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setLoading(true); setMonth(event.target.value); } }} /></label>}
+        <p className="month-note">Mensalidades: {duesPeriod === 1 ? "mês selecionado" : `${duesPeriod} meses até o mês selecionado`}. Movimentações financeiras mantêm seus próprios filtros de período.</p>
         {loading ? <div className="remote-state" role="status">Carregando dados do grupo...</div> : loadError ? <div className="remote-state" role="alert"><p>{loadError}</p><button className="primary-button" onClick={() => void refresh()}>Tentar novamente</button></div> : <>
           {view === "finance" && <FinanceView transactions={transactions} dues={dues} onOpenModal={openNewTransaction} onShowDues={() => chooseView("dues")} onEditTransaction={editTransaction} onDeleteTransaction={deleteTransaction} />}
           
-<DuesView
+{view === "dues" && <DuesView
+  onLoadMembers={loadMembers}
+  period={duesPeriod}
+  onChangeMonth={(value) => { setLoading(true); setMonth(value); }}
+  onChangePeriod={(value) => { setLoading(true); setDuesPeriod(value); }}
   referenceMonth={month}
   dues={dues}
   onMarkPaid={markPaid}
+  onUpdateDue={updateDue}
+  onDeleteDue={deleteDue}
   savingId={savingDueId}
   branches={branches}
   saving={saving}
   onGenerate={generateDues}
-/>
+/>}
 
           {view === "reports" && <ReportsView transactions={transactions} dues={dues} />}
           {view === "overview" && <OverviewView transactions={transactions} dues={dues} onOpenTransaction={openNewTransaction} onChooseView={chooseView} onRefresh={() => void refresh()} />}

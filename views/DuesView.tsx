@@ -1,12 +1,13 @@
-
 "use client";
 
-import { AlertTriangle, CheckCircle2, Clock3, Download, WalletCards, PlusCircle } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { AlertTriangle, CheckCircle2, Clock3, Download, WalletCards, PlusCircle, CalendarDays, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { SectionSearch, normalizeSearch } from "@/components/ui/SectionSearch";
+import { DueEditForm } from "@/components/modals/DueEditForm";
 import type { Due } from "@/types/app";
-import type { Branch } from "@/services/financeService";
+import type { Branch, Member } from "@/services/financeService";
 import { initials, money, shortDate } from "@/utils/formatters";
+import "./DuesGenerator.css";
 
 type StatusFilter = "all" | Due["status"];
 
@@ -19,28 +20,70 @@ function monthLabel(value: string) {
 export function DuesView({
   dues,
   onMarkPaid,
+  onUpdateDue,
+  onDeleteDue,
   savingId,
   referenceMonth,
   branches,
   saving,
   onGenerate,
+  onLoadMembers,
+  period,
+  onChangeMonth,
+  onChangePeriod,
 }: {
   referenceMonth: string;
+  period: number;
+  onChangeMonth: (value: string) => void;
+  onChangePeriod: (value: number) => void;
   dues: Due[];
   onMarkPaid: (id: number) => void;
+  onUpdateDue: (id: number, input: { amount: number; due_date: string }) => Promise<void>;
+  onDeleteDue: (due: Due) => void;
   savingId: number | null;
   branches: Branch[];
   saving: boolean;
-  onGenerate: (input: { branch_id: number; reference_month: string; amount: number; due_day: number }) => Promise<void>;
+  onLoadMembers: (branchId: number) => Promise<Member[]>;
+  onGenerate: (input: { branch_id: number; member_id: number; reference_month: string; amount: number; due_day: number }) => Promise<void>;
 }) {
+  const [editingDue, setEditingDue] = useState<Due | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [showGenerator, setShowGenerator] = useState(false);
   const [branchId, setBranchId] = useState("");
+  const [memberId, setMemberId] = useState("");
+  const [memberState, setMemberState] = useState<{ branchId: string; members: Member[]; loading: boolean; error: string }>({ branchId: "", members: [], loading: false, error: "" });
+  const [memberRetry, setMemberRetry] = useState(0);
   const [amount, setAmount] = useState("");
-  const [dueDay, setDueDay] = useState("10");
+  const [dueDate, setDueDate] = useState("");
+  const [dueDateText, setDueDateText] = useState("");
   const [generateError, setGenerateError] = useState("");
   const monthDues = dues;
+  const lastDay = new Date(
+    Number(referenceMonth.slice(0, 4)),
+    Number(referenceMonth.slice(5, 7)),
+    0,
+  ).getDate();
+  const minDueDate = `${referenceMonth}-01`;
+  const maxDueDate = `${referenceMonth}-${String(lastDay).padStart(2, "0")}`;
+
+  useEffect(() => {
+    if (!showGenerator || !branchId) return;
+    let cancelled = false;
+    void onLoadMembers(Number(branchId)).then(
+      (members) => {
+        if (!cancelled) setMemberState({ branchId, members, loading: false, error: "" });
+      },
+      (error: unknown) => {
+        if (!cancelled) setMemberState({ branchId, members: [], loading: false, error: error instanceof Error ? error.message : "Não foi possível carregar os membros." });
+      },
+    );
+    return () => { cancelled = true; };
+  }, [branchId, showGenerator, onLoadMembers, memberRetry]);
+
+  const membersLoading = Boolean(branchId) && (memberState.branchId !== branchId || memberState.loading);
+  const members = memberState.branchId === branchId ? memberState.members : [];
+  const membersError = memberState.branchId === branchId ? memberState.error : "";
 
   const filtered = useMemo(
     () => monthDues.filter((due) => (status === "all" || due.status === status) && normalizeSearch(`${due.memberName} ${due.patrol} ${due.referenceMonth}`).includes(normalizeSearch(query))),
@@ -63,30 +106,40 @@ export function DuesView({
   async function submitGeneration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setGenerateError("");
+    if (saving) return;
 
     const branch = Number(branchId);
+    const selectedMember = members.find((member) => member.id === Number(memberId));
     const value = Number(amount.replace(",", "."));
-    const day = Number(dueDay);
-
+    const day = Number(dueDate.slice(8, 10));
     if (!Number.isInteger(branch) || branch <= 0) {
       setGenerateError("Selecione um ramo.");
+      return;
+    }
+    if (membersLoading || membersError || !selectedMember || selectedMember.branch_id !== branch) {
+      setGenerateError("Selecione um membro do ramo antes de gerar a mensalidade.");
       return;
     }
     if (!Number.isFinite(value) || value <= 0) {
       setGenerateError("Informe um valor válido para a mensalidade.");
       return;
     }
-    if (!Number.isInteger(day) || day < 1 || day > 28) {
-      setGenerateError("Informe um dia de vencimento entre 1 e 28.");
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) ||
+      dueDate.slice(0, 7) !== referenceMonth ||
+      !Number.isInteger(day) || day < 1 || day > lastDay
+    ) {
+      setGenerateError("Selecione uma data válida dentro do mês de referência.");
       return;
     }
 
     const reference = `${referenceMonth}-01`;
-    if (!window.confirm(`Gerar mensalidades do ramo selecionado para ${monthLabel(referenceMonth)}, no valor de ${money.format(value)} e vencimento no dia ${day}?`)) return;
+    if (!window.confirm(`Gerar mensalidade para ${selectedMember.name}, referente a ${monthLabel(referenceMonth)}, no valor de ${money.format(value)} e vencimento em ${dueDate.split("-").reverse().join("/")}?`)) return;
 
     try {
       await onGenerate({
         branch_id: branch,
+        member_id: selectedMember.id,
         reference_month: reference,
         amount: value,
         due_day: day,
@@ -117,7 +170,7 @@ export function DuesView({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `mensalidades-${referenceMonth === "all" ? "todas" : referenceMonth}.csv`;
+    anchor.download = `mensalidades-${period}-meses-ate-${referenceMonth}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -151,38 +204,78 @@ export function DuesView({
       </div>
 
       {showGenerator && (
-        <article className="panel" style={{ padding: 20, marginBottom: 20 }}>
-          <h3>Gerar mensalidades do mês</h3>
-          <p>Referência: <strong>{monthLabel(referenceMonth)}</strong>. As mensalidades serão solicitadas ao backend para o ramo escolhido.</p>
-          <form onSubmit={submitGeneration} style={{ display: "grid", gap: 12, maxWidth: 480 }}>
-            <label>
-              Ramo
-              <select value={branchId} onChange={(event) => setBranchId(event.target.value)} required disabled={saving}>
+        <article className="panel dues-generator">
+          <header className="dues-generator-heading">
+            <div className="dues-generator-title"><span className="dues-generator-icon"><WalletCards size={23} /></span><div><h3>Nova mensalidade</h3><p>Escolha a pessoa e preencha os dados da cobrança.</p></div></div>
+            <span className="dues-generator-reference"><small>Referência</small><strong>{monthLabel(referenceMonth)}</strong></span>
+          </header>
+          <form onSubmit={submitGeneration} className="dues-generator-form">
+            <label className="form-field">
+              <span>Ramo</span>
+              <select value={branchId} onChange={(event) => {
+                const next = event.target.value;
+                setBranchId(next);
+                setMemberId("");
+                setGenerateError("");
+                setMemberState({ branchId: next, members: [], loading: Boolean(next), error: "" });
+              }} required disabled={saving}>
                 <option value="">Selecione o ramo</option>
                 {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
               </select>
             </label>
-            <label>
-              Valor por mensalidade (R$)
-              <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Ex.: 50,00" inputMode="decimal" required disabled={saving} />
+            <label className="form-field">
+              <span>Pessoa que será cobrada</span>
+              <select value={memberId} onChange={(event) => setMemberId(event.target.value)} required disabled={saving || !branchId || membersLoading || Boolean(membersError)}>
+                <option value="">{membersLoading ? "Carregando membros..." : "Selecione a pessoa"}</option>
+                {members.map((member) => <option key={member.id} value={member.id}>{member.name} (ID {member.id})</option>)}
+              </select>
             </label>
-            <label>
-              Dia do vencimento (1 a 28)
-              <input type="number" min="1" max="28" value={dueDay} onChange={(event) => setDueDay(event.target.value)} required disabled={saving} />
+            {membersLoading && <p role="status">Carregando membros...</p>}
+            {membersError && <div role="alert"><p>{membersError}</p><button type="button" disabled={saving} onClick={() => {
+              setMemberId("");
+              setMemberState({ branchId, members: [], loading: true, error: "" });
+              setMemberRetry((value) => value + 1);
+            }}>Tentar novamente</button></div>}
+            {branchId && !membersLoading && !membersError && members.length === 0 && <p>Nenhum membro encontrado neste ramo.</p>}
+            <label className="form-field">
+              <span>Valor da mensalidade</span>
+              <div className="dues-generator-money"><span aria-hidden="true">R$</span><input aria-label="Valor da mensalidade em reais" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" inputMode="decimal" required disabled={saving} /></div>
             </label>
+            <div className="form-field">
+              <label htmlFor="due-date-text">Data de vencimento</label>
+              <div className="dues-date-control">
+                <input id="due-date-text" type="text" inputMode="numeric" placeholder="dd/mm/yyyy" maxLength={10} pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" value={dueDateText} required disabled={saving} aria-describedby="due-date-hint" onChange={(event) => {
+                  const digits = event.target.value.replace(/\D/g, "").slice(0, 8);
+                  const formatted = digits.slice(0, 2) + (digits.length > 2 ? "/" + digits.slice(2, 4) : "") + (digits.length > 4 ? "/" + digits.slice(4) : "");
+                  setDueDateText(formatted);
+                  setDueDate(digits.length === 8 ? `${digits.slice(4)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}` : "");
+                }} />
+                <span className="dues-date-calendar">
+                  <CalendarDays size={19} aria-hidden="true" />
+                  <input type="date" aria-label="Escolher vencimento no calendário" value={dueDate} min={minDueDate} max={maxDueDate} disabled={saving} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Usa o seletor padrão do navegador. */ } }} onChange={(event) => {
+                    setDueDate(event.target.value);
+                    setDueDateText(event.target.value ? event.target.value.split("-").reverse().join("/") : "");
+                  }} />
+                </span>
+              </div>
+              <small id="due-date-hint">Formato: dia/mês/ano. Escolha uma data dentro do mês de referência.</small>
+            </div>
             {generateError && <p role="alert" style={{ color: "var(--danger, #b91c1c)" }}>{generateError}</p>}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="primary-button" type="submit" disabled={saving}>{saving ? "Gerando..." : "Confirmar geração"}</button>
+            <div className="dues-generator-actions"><p>A cobrança será criada apenas para a pessoa selecionada.</p>
+              <button className="primary-button" type="submit" disabled={saving || !memberId || membersLoading || Boolean(membersError)}><PlusCircle size={16} />{saving ? "Gerando..." : "Gerar mensalidade"}</button>
               <button className="outline-inline" type="button" disabled={saving} onClick={() => setShowGenerator(false)}>Cancelar</button>
             </div>
           </form>
         </article>
       )}
 
+      {editingDue && <DueEditForm key={editingDue.id} due={editingDue} saving={saving} onClose={() => setEditingDue(null)} onSave={async (input) => { await onUpdateDue(editingDue.id, input); setEditingDue(null); }} />}
       <SectionSearch value={query} onChange={setQuery} label="Buscar nas Mensalidades" placeholder="Buscar membro, ramo ou referência..." />
       <article className="panel data-panel">
         <div className="data-toolbar dues-toolbar">
-          <div className="dues-toolbar-left">
+          <div className="dues-toolbar-left dues-period-toolbar">
+            <label className="dues-period-field"><span>{period === 1 ? "Mês" : "Mês final"}</span><input type="month" value={referenceMonth} disabled={saving} onChange={(event) => { if (/^\d{4}-(0[1-9]|1[0-2])$/.test(event.target.value)) onChangeMonth(event.target.value); }} /></label>
+            <label className="dues-period-field"><span>Período</span><select value={period} disabled={saving} onChange={(event) => onChangePeriod(Number(event.target.value))}><option value={1}>Somente este mês</option><option value={3}>Últimos 3 meses</option><option value={6}>Últimos 6 meses</option><option value={12}>Últimos 12 meses</option></select></label>
             <div className="status-tabs" role="tablist" aria-label="Filtrar mensalidades por status">
               {(["all", "overdue", "pending", "paid"] as const).map((item) => (
                 <button key={item} className={status === item ? "active" : ""} onClick={() => setStatus(item)}>
@@ -201,7 +294,7 @@ export function DuesView({
 
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>Membro</th><th>Ramo</th><th>Referência</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Pagamento</th><th /></tr></thead>
+            <thead><tr><th>Membro</th><th>Ramo</th><th>Referência</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Pagamento</th><th>Ações</th></tr></thead>
             <tbody>
               {filtered.map((due) => (
                 <tr key={due.id}>
@@ -212,7 +305,10 @@ export function DuesView({
                   <td><span className={`status-pill ${due.status}`}>{due.status === "paid" ? "Pago" : due.status === "overdue" ? "Em atraso" : "Pendente"}</span></td>
                   <td><strong>{money.format(due.amountCents / 100)}</strong></td>
                   <td>{due.paidAt ? shortDate.format(new Date(`${due.paidAt}T12:00:00`)) : "—"}</td>
-                  <td>{due.status !== "paid" ? <button className="row-action" disabled={savingId !== null || saving} onClick={() => onMarkPaid(due.id)}>{savingId === due.id ? "Salvando..." : "Registrar pagamento"}</button> : <span className="paid-check"><CheckCircle2 size={17} /> Confirmado</span>}</td>
+                  <td><div className="dues-row-actions">{due.status !== "paid" ? <button className="row-action" disabled={savingId !== null || saving} onClick={() => onMarkPaid(due.id)}>{savingId === due.id ? "Salvando..." : "Registrar pagamento"}</button> : <span className="paid-check"><CheckCircle2 size={17} /> Confirmado</span>}
+                    <button className="row-action" aria-label={`Editar mensalidade de ${due.memberName}`} title={due.status === "paid" ? "Pagamento registrado: edição bloqueada" : "Editar mensalidade"} disabled={saving || due.status === "paid"} onClick={() => setEditingDue(due)}><Pencil size={15} /> Editar</button>
+                    <button className="row-action dues-delete" aria-label={`Excluir mensalidade de ${due.memberName}`} title={due.status === "paid" ? "Pagamento registrado: exclusão bloqueada" : "Excluir mensalidade"} disabled={saving || due.status === "paid"} onClick={() => onDeleteDue(due)}><Trash2 size={15} /> Excluir</button>
+                  </div></td>
                 </tr>
               ))}
               {filtered.length === 0 && <tr><td colSpan={8}><div className="empty-table-state"><strong>Nenhuma mensalidade encontrada</strong><span>Altere ou limpe os filtros para visualizar outras cobranças.</span></div></td></tr>}

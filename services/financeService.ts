@@ -1,6 +1,7 @@
 import type { Due, Transaction } from "@/types/app";
 
 export type Session = { token: string; user: { id: number; name: string; email: string; global_role: string; mustChangePassword: boolean } };
+export type Member = { id: number; name: string; branch_id: number };
 export type Branch = { id: number; name: string };
 export type TransactionInput = Omit<Transaction, "id">;
 export class ApiError extends Error {
@@ -45,20 +46,54 @@ export function transactionPayload(input: TransactionInput) {
 export const financeService = {
   login: (email: string, password: string) => request<Session>("/auth/login", undefined, "POST", { email, password }),
   changePassword: (token: string, newPassword: string) => request("/auth/change-password", token, "POST", { newPassword }),
-  async load(token: string, month: string) {
-    const [transactions, dues] = await Promise.all([request<Row[]>("/finances", token), request<Row[]>(`/dues?month=${encodeURIComponent(month + "-01")}`, token)]);
-    if (!Array.isArray(transactions) || !Array.isArray(dues)) throw new Error("Resposta inesperada do servidor.");
-    return { transactions: transactions.map(mapTransaction), dues: dues.map(mapDue) };
+  async load(token: string, month: string, count = 1) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || ![1, 3, 6, 12].includes(count)) throw new Error("Período inválido.");
+    const [year, number] = month.split("-").map(Number);
+    const months = Array.from({ length: count }, (_, index) => {
+      const date = new Date(year, number - count + index, 1);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
+    });
+    const transactionsPromise = request<Row[]>("/finances", token);
+    const duesPromise = (async () => {
+      const result: Due[] = [];
+      // Limita a três consultas simultâneas para não sobrecarregar a API.
+      for (let offset = 0; offset < months.length; offset += 3) {
+        const pages = await Promise.all(months.slice(offset, offset + 3).map(value => request<Row[]>(`/dues?month=${encodeURIComponent(value)}`, token)));
+        for (const page of pages) {
+          if (!Array.isArray(page)) throw new Error("Resposta inesperada de mensalidades.");
+          result.push(...page.map(mapDue));
+        }
+      }
+      return Array.from(new Map(result.map(due => [due.id, due])).values()).sort((a, b) => b.referenceMonth.localeCompare(a.referenceMonth) || a.memberName.localeCompare(b.memberName, "pt-BR"));
+    })();
+    const [transactions, dues] = await Promise.all([transactionsPromise, duesPromise]);
+    if (!Array.isArray(transactions)) throw new Error("Resposta inesperada do servidor.");
+    return { transactions: transactions.map(mapTransaction), dues };
   },
   branches: (token: string) => request<Branch[]>("/branches", token),
+  async membersForDues(token: string, branchId: number) {
+    const rows = await request<Member[]>(`/dues/members?branch_id=${encodeURIComponent(branchId)}`, token);
+    if (!Array.isArray(rows)) throw new Error("Resposta inesperada ao carregar membros.");
+    return rows.map((row) => {
+      const id = Number(row.id);
+      const branch_id = Number(row.branch_id);
+      if (!Number.isSafeInteger(id) || id <= 0 || branch_id !== branchId || typeof row.name !== "string") {
+        throw new Error("Dados de membro inválidos recebidos do servidor.");
+      }
+      return { id, name: row.name, branch_id };
+    });
+  },
   create: (token: string, input: TransactionInput) => request("/finances", token, "POST", transactionPayload(input)),
   update: (token: string, id: number, input: TransactionInput) => request(`/finances/${id}`, token, "PUT", transactionPayload(input)),
   remove: (token: string, id: number) => request(`/finances/${id}`, token, "DELETE"),
+  updateDue: (token: string, id: number, input: { amount: number; due_date: string }) => request(`/dues/${id}`, token, "PUT", input),
+  deleteDue: (token: string, id: number) => request(`/dues/${id}`, token, "DELETE"),
   pay: (token: string, id: number) => request(`/dues/${id}/pay`, token, "PUT"),
     generateDues: (
     token: string,
     input: {
       branch_id: number;
+      member_id: number;
       reference_month: string;
       amount: number;
       due_day: number;
@@ -66,5 +101,5 @@ export const financeService = {
   ) => request<{
     message: string;
     dues: Row[];
-  }>("/dues/generate", token, "POST", input),
+  }>("/dues/generate-member", token, "POST", input),
 };

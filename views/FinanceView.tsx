@@ -1,10 +1,14 @@
 "use client";
 
+import { DateInput } from "@/components/ui/DateInput";
+
 import { useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Download, FileText, FilterX, Pencil, Plus, ReceiptText, Trash2, WalletCards } from "lucide-react";
 import { SectionSearch, normalizeSearch } from "@/components/ui/SectionSearch";
 import type { Due, Transaction } from "@/types/app";
 import { initials, money, shortDate } from "@/utils/formatters";
+
+import { financePeriod } from "@/utils/financePeriod";
 
 type FinanceViewProps = {
   transactions: Transaction[];
@@ -23,6 +27,7 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | Transaction["kind"]>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [period, setPeriod] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -42,8 +47,8 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
     });
   }, [transactions, query, kindFilter, categoryFilter, dateFrom, dateTo, invalidRange]);
 
-  const income = transactions.filter((item) => item.kind === "income").reduce((sum, item) => sum + item.amountCents, 0);
-  const expense = transactions.filter((item) => item.kind === "expense").reduce((sum, item) => sum + item.amountCents, 0);
+  const income = visibleTransactions.filter((item) => item.kind === "income").reduce((sum, item) => sum + item.amountCents, 0);
+  const expense = visibleTransactions.filter((item) => item.kind === "expense").reduce((sum, item) => sum + item.amountCents, 0);
   const balance = income - expense;
   const overdue = dues.filter((due) => due.status === "overdue");
   const paidCount = dues.filter((due) => due.status === "paid").length;
@@ -51,6 +56,7 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
   const hasFilters = Boolean(query.trim()) || kindFilter !== "all" || categoryFilter !== "all" || Boolean(dateFrom) || Boolean(dateTo);
 
   function clearFilters() {
+    setPeriod("all");
     setQuery("");
     setKindFilter("all");
     setCategoryFilter("all");
@@ -84,18 +90,27 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
   return (
     <>
       <section className="metrics" aria-label="Resumo financeiro">
-        <article className="metric-card balance-card"><div className="metric-icon"><WalletCards size={21} /></div><span>Saldo calculado</span><strong>{money.format(balance / 100)}</strong><small>Entradas menos saídas registradas</small></article>
-        <article className="metric-card"><div className="metric-top"><div className="metric-icon income"><ArrowDownLeft size={21} /></div></div><span>Entradas registradas</span><strong>{money.format(income / 100)}</strong><small>{transactions.filter((item) => item.kind === "income").length} lançamentos</small></article>
-        <article className="metric-card"><div className="metric-top"><div className="metric-icon expense"><ArrowUpRight size={21} /></div></div><span>Saídas registradas</span><strong>{money.format(expense / 100)}</strong><small>{transactions.filter((item) => item.kind === "expense").length} lançamentos</small></article>
+        <article className="metric-card balance-card"><div className="metric-icon"><WalletCards size={21} /></div><span>Saldo calculado</span><strong>{money.format(balance / 100)}</strong><small>Entradas menos saídas dos lançamentos filtrados</small></article>
+        <article className="metric-card"><div className="metric-top"><div className="metric-icon income"><ArrowDownLeft size={21} /></div></div><span>Entradas registradas</span><strong>{money.format(income / 100)}</strong><small>{visibleTransactions.filter((item) => item.kind === "income").length} lançamentos</small></article>
+        <article className="metric-card"><div className="metric-top"><div className="metric-icon expense"><ArrowUpRight size={21} /></div></div><span>Saídas registradas</span><strong>{money.format(expense / 100)}</strong><small>{visibleTransactions.filter((item) => item.kind === "expense").length} lançamentos</small></article>
         <article className="metric-card dues-card"><div className="metric-top"><div className="metric-icon gold"><CircleDollarSign size={21} /></div><em>{duesRate}%</em></div><span>Mensalidades</span><strong>{paidCount} de {dues.length}</strong><div className="progress"><i style={{ width: `${duesRate}%` }} /></div><small>{overdue.length} em atraso · {dues.filter((due) => due.status === "pending").length} pendentes</small></article>
       </section>
 
       <SectionSearch value={query} onChange={setQuery} label="Buscar no Financeiro" placeholder="Buscar descrição, categoria ou ramo..." />
+      <section className="finance-period-panel" aria-label="Período financeiro">
+        <label><span>Período das movimentações</span><select value={period} onChange={(event) => {
+          const value = event.target.value;
+          setPeriod(value);
+          if (value === "all") { setDateFrom(""); setDateTo(""); }
+          else if (value !== "custom") { const range = financePeriod(Number(value) as 3 | 6 | 12); setDateFrom(range.from); setDateTo(range.to); }
+        }}><option value="all">Todo o histórico</option><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12">Últimos 12 meses</option><option value="custom">Personalizado</option></select></label>
+        <p>Inclui o mês atual até hoje. Para outro intervalo, ajuste as datas abaixo. Os totais financeiros e o CSV acompanham os filtros.</p>
+      </section>
       <section className="finance-filters" aria-label="Filtros das movimentações">
         <label><span>Tipo</span><select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}><option value="all">Todos</option><option value="income">Entradas</option><option value="expense">Saídas</option></select></label>
         <label><span>Categoria</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">Todas</option>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
-        <label><span>De</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
-        <label><span>Até</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
+        <DateInput label="De" value={dateFrom} onChange={(value) => { setDateFrom(value); setPeriod("custom"); }} />
+        <DateInput label="Até" value={dateTo} onChange={(value) => { setDateTo(value); setPeriod("custom"); }} />
         <div className="filter-actions"><button className="clear-filters" onClick={clearFilters} disabled={!hasFilters}><FilterX size={14} /> Limpar</button><button className="clear-filters export-filtered" onClick={exportCsv} disabled={!visibleTransactions.length || invalidRange}><Download size={14} /> CSV</button></div>
       </section>
       {invalidRange && <div className="inline-alert error" role="alert">A data inicial não pode ser posterior à data final.</div>}

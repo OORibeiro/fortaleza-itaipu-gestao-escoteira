@@ -1,0 +1,8 @@
+.br-date-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.br-date-field > label { font-size: 10px; font-weight: 700; color: var(--muted); }
+.br-date-control { position: relative; min-width: 0; }
+.br-date-control > input { width: 100%; min-width: 0; padding-right: 44px !important; }
+.br-date-calendar { position: absolute; inset: 1px 1px 1px auto; width: 37px; display: grid; place-items: center; color: var(--muted); background: var(--surface, white); border-radius: 0 7px 7px 0; }
+.br-date-control .br-date-calendar input { position: absolute; inset: 0; height: 100%; width: 100%; padding: 0; opacity: 0; cursor: pointer; }
+.br-date-calendar:focus-within { outline: 2px solid var(--forest); outline-offset: 2px; }
+.br-date-field small { color: var(--accent); font-size: 10px; line-height: 1.4; }

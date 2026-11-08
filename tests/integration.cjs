@@ -63,7 +63,60 @@ test('proxy forwards only approved routes to fixed Render origin and preserves t
   assert.equal(rejected.status, 404);
 });
 test('proxy surfaces unpublished routes as JSON and does not follow redirects', async () => {
-  global.fetch = async (_url, init) => { assert.equal(init.redirect, 'error'); return new Response('Cannot GET /dues', { status: 404 }); };
+  global.fetch = async (_url, init) => { assert.equal(init.redirect, 'manual'); return new Response('Cannot GET /dues', { status: 404 }); };
   const res = await proxy.GET(new Request('http://localhost/api/render/dues'), { params: Promise.resolve({ path: ['dues'] }) });
   assert.equal(res.status, 404); assert.match((await res.json()).error, /não publicada/);
+});
+
+test('individual dues preserve member ID and never call bulk generation', async () => {
+  const calls=[];
+  global.fetch=async(url,init)=>{calls.push([url,init]);return Response.json({message:'Gerada',dues:[]});};
+  await financeService.generateDues('t',{branch_id:2,member_id:7,reference_month:'2026-10-01',amount:50,due_day:31});
+  assert.equal(calls.length,1);
+  assert.equal(calls[0][0],'/api/render/dues/generate-member');
+  assert.equal(JSON.parse(calls[0][1].body).member_id,7);
+});
+test('proxy forwards only member selector branch query and permits individual generation', async () => {
+  const calls=[];
+  global.fetch=async(url,init)=>{calls.push([String(url),init]);return Response.json([]);};
+  const res=await proxy.GET(new Request('http://localhost/api/render/dues/members?branch_id=2&url=https://other.test'),{params:Promise.resolve({path:['dues','members']})});
+  assert.equal(res.status,200);
+  assert.equal(calls[0][0],'https://grupo-escoteiro.onrender.com/dues/members?branch_id=2');
+  const body={branch_id:2,member_id:7,reference_month:'2026-10-01',amount:50,due_day:31};
+  await proxy.POST(new Request('http://localhost/api/render/dues/generate-member',{method:'POST',body:JSON.stringify(body),headers:{Authorization:'Bearer t'}}),{params:Promise.resolve({path:['dues','generate-member']})});
+  assert.equal(calls[1][0],'https://grupo-escoteiro.onrender.com/dues/generate-member');
+  assert.equal(JSON.parse(calls[1][1].body).member_id,7);
+  assert.equal(calls[1][1].headers.get('Authorization'),'Bearer t');
+  const old=await proxy.POST(new Request('http://localhost/api/render/dues/generate',{method:'POST'}),{params:Promise.resolve({path:['dues','generate']})});
+  assert.equal(old.status,404);
+  assert.equal(calls.length,2);
+});
+test('period loads every month across year boundaries and fails on incomplete data', async () => {
+ const months=[];
+ global.fetch=async(url)=>{if(url.includes('/finances')) return Response.json([]); const month=new URL(url,'http://local').searchParams.get('month');months.push(month);return Response.json([{...due,id:months.length,reference_month:month}]);};
+ const state=await financeService.load('t','2026-02',3);
+ assert.deepEqual(months,['2025-12-01','2026-01-01','2026-02-01']);assert.equal(state.dues.length,3);
+ months.length=0;await financeService.load('t','2026-02',12);assert.equal(months.length,12);assert.equal(months[0],'2025-03-01');
+ global.fetch=async(url)=>url.includes('2026-01')?Response.json({error:'Falha'},{status:500}):Response.json([]);
+ await assert.rejects(financeService.load('t','2026-02',3),/Falha/);
+});
+test('financial periods include current month, cross years and end today', () => {
+  const {financePeriod}=loadTS('utils/financePeriod.ts');
+  assert.deepEqual(financePeriod(3,new Date(2026,9,28)),{from:'2026-08-01',to:'2026-10-28'});
+  assert.deepEqual(financePeriod(6,new Date(2026,1,10)),{from:'2025-09-01',to:'2026-02-10'});
+  assert.deepEqual(financePeriod(12,new Date(2028,1,29)),{from:'2027-03-01',to:'2028-02-29'});
+});
+
+test('dues edit/delete use dedicated routes, preserve auth and forward conflicts', async () => {
+ const calls=[];
+ global.fetch=async(url,init)=>{calls.push([String(url),init]);return Response.json({message:'ok'});};
+ await financeService.updateDue('t',9,{amount:65.75,due_date:'2026-11-30'});
+ await financeService.deleteDue('t',9);
+ assert.equal(calls[0][0],'/api/render/dues/9');assert.equal(calls[0][1].method,'PUT');assert.deepEqual(JSON.parse(calls[0][1].body),{amount:65.75,due_date:'2026-11-30'});assert.equal(calls[1][1].method,'DELETE');
+ for(const method of ['PUT','DELETE']){
+ const result=await proxy[method](new Request('http://localhost/api/render/dues/9',{method,headers:{Authorization:'Bearer t'},...(method==='PUT'?{body:JSON.stringify({amount:65.75,due_date:'2026-11-30'})}:{})}),{params:Promise.resolve({path:['dues','9']})});
+ assert.equal(result.status,200);assert.equal(calls.at(-1)[0],'https://grupo-escoteiro.onrender.com/dues/9');assert.equal(calls.at(-1)[1].headers.get('Authorization'),'Bearer t');
+ }
+ global.fetch=async()=>Response.json({error:'Pagamento registrado'},{status:409});
+ await assert.rejects(financeService.deleteDue('t',9),e=>e.status===409);
 });

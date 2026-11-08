@@ -2,17 +2,19 @@
 const ORIGIN = "https://grupo-escoteiro.onrender.com";
 
 const routes: Record<string, RegExp[]> = {
-  GET: [/^finances$/, /^dues$/, /^branches$/],
+  GET: [/^finances$/, /^dues$/, /^dues\/members$/, /^branches$/],
   POST: [
     /^auth\/login$/,
     /^auth\/change-password$/,
     /^finances$/,
+    /^dues\/generate-member$/,
   ],
   PUT: [
     /^finances\/\d+$/,
     /^dues\/\d+\/pay$/,
+    /^dues\/\d+$/,
   ],
-  DELETE: [/^finances\/\d+$/],
+  DELETE: [/^finances\/\d+$/, /^dues\/\d+$/],
 };
 
 async function proxy(
@@ -50,6 +52,11 @@ async function proxy(
 
   if (month && target === "dues") {
     url.searchParams.set("month", month);
+  }
+
+  if (target === "dues/members") {
+    const branchId = new URL(request.url).searchParams.get("branch_id");
+    if (branchId) url.searchParams.set("branch_id", branchId);
   }
 
   try {
