@@ -1,3 +1,4 @@
+import { referenceMonths } from "@/utils/reportPeriod";
 import type { Due, Transaction } from "@/types/app";
 
 export type Session = { token: string; user: { id: number; name: string; email: string; global_role: string; mustChangePassword: boolean } };
@@ -70,6 +71,18 @@ export const financeService = {
     if (!Array.isArray(transactions)) throw new Error("Resposta inesperada do servidor.");
     return { transactions: transactions.map(mapTransaction), dues };
   },
+  async duesForRange(token: string, from: string, to: string) {
+    const months = referenceMonths(from, to);
+    const result: Due[] = [];
+    for (let offset = 0; offset < months.length; offset += 3) {
+      const pages = await Promise.all(months.slice(offset, offset + 3).map(month => request<Row[]>(`/dues?month=${encodeURIComponent(month)}`, token)));
+      for (const page of pages) {
+        if (!Array.isArray(page)) throw new Error("Resposta inesperada de mensalidades.");
+        result.push(...page.map(mapDue));
+      }
+    }
+    return Array.from(new Map(result.map(due => [due.id, due])).values());
+  },
   branches: (token: string) => request<Branch[]>("/branches", token),
   async membersForDues(token: string, branchId: number) {
     const rows = await request<Member[]>(`/dues/members?branch_id=${encodeURIComponent(branchId)}`, token);
@@ -97,9 +110,11 @@ export const financeService = {
       reference_month: string;
       amount: number;
       due_day: number;
+      repeat_months?: 1 | 6 | 12;
     },
   ) => request<{
     message: string;
     dues: Row[];
-  }>("/dues/generate-member", token, "POST", input),
+  }>((input.repeat_months === 6 || input.repeat_months === 12) ? "/dues/generate-member-series" : "/dues/generate-member", token, "POST", input),
 };
+

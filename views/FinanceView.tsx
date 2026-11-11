@@ -2,17 +2,18 @@
 
 import { DateInput } from "@/components/ui/DateInput";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Download, FileText, FilterX, Pencil, Plus, ReceiptText, Trash2, WalletCards } from "lucide-react";
 import { SectionSearch, normalizeSearch } from "@/components/ui/SectionSearch";
 import type { Due, Transaction } from "@/types/app";
 import { initials, money, shortDate } from "@/utils/formatters";
 
+import { referenceMonths } from "@/utils/reportPeriod";
 import { financePeriod } from "@/utils/financePeriod";
 
 type FinanceViewProps = {
   transactions: Transaction[];
-  dues: Due[];
+  onLoadDues: (from: string, to: string) => Promise<Due[]>;
   onOpenModal: () => void;
   onShowDues: () => void;
   onEditTransaction: (transaction: Transaction) => void;
@@ -23,16 +24,37 @@ function csvCell(value: string | number) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
 
-export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEditTransaction, onDeleteTransaction }: FinanceViewProps) {
+export function FinanceView({ transactions, onLoadDues, onOpenModal, onShowDues, onEditTransaction, onDeleteTransaction }: FinanceViewProps) {
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | Transaction["kind"]>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [period, setPeriod] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [period, setPeriod] = useState("3");
+  const [initialRange] = useState(() => financePeriod(3));
+  const [dateFrom, setDateFrom] = useState(initialRange.from);
+  const [dateTo, setDateTo] = useState(initialRange.to);
 
   const categories = useMemo(() => Array.from(new Set(transactions.map((item) => item.category))).sort(), [transactions]);
-  const invalidRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
+  let rangeError = "";
+  try { referenceMonths(dateFrom, dateTo); }
+  catch (error) { rangeError = error instanceof Error ? error.message : "Período inválido."; }
+  const invalidRange = Boolean(rangeError);
+  const rangeKey = `${dateFrom}/${dateTo}`;
+  const [retry, setRetry] = useState(0);
+  const [duesState, setDuesState] = useState<{ key: string; rows: Due[]; error: string; retry: number }>({key:"", rows:[], error:"", retry:0});
+  useEffect(() => {
+    if (invalidRange) return;
+    let cancelled = false;
+    void onLoadDues(dateFrom, dateTo).then(
+      rows => { if (!cancelled) setDuesState({key:rangeKey, rows, error:"", retry}); },
+      error => { if (!cancelled) setDuesState({key:rangeKey, rows:[], error:error instanceof Error ? error.message : "Não foi possível carregar mensalidades.", retry}); },
+    );
+    return () => { cancelled = true; };
+  }, [onLoadDues, dateFrom, dateTo, invalidRange, rangeKey, retry]);
+  const duesLoading = !invalidRange && (duesState.key !== rangeKey || duesState.retry !== retry);
+  const duesError = duesState.key === rangeKey ? duesState.error : "";
+  const duesReady = !invalidRange && !duesLoading && !duesError;
+  const dues = duesReady ? duesState.rows : [];
+
 
   const visibleTransactions = useMemo(() => {
     if (invalidRange) return [];
@@ -53,15 +75,16 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
   const overdue = dues.filter((due) => due.status === "overdue");
   const paidCount = dues.filter((due) => due.status === "paid").length;
   const duesRate = dues.length ? Math.round((paidCount / dues.length) * 100) : 0;
-  const hasFilters = Boolean(query.trim()) || kindFilter !== "all" || categoryFilter !== "all" || Boolean(dateFrom) || Boolean(dateTo);
+  const hasFilters = period !== "3" || Boolean(query.trim()) || kindFilter !== "all" || categoryFilter !== "all";
 
   function clearFilters() {
-    setPeriod("all");
+    setPeriod("3");
     setQuery("");
     setKindFilter("all");
     setCategoryFilter("all");
-    setDateFrom("");
-    setDateTo("");
+    const range = financePeriod(3);
+    setDateFrom(range.from);
+    setDateTo(range.to);
   }
 
   function exportCsv() {
@@ -90,10 +113,10 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
   return (
     <>
       <section className="metrics" aria-label="Resumo financeiro">
-        <article className="metric-card balance-card"><div className="metric-icon"><WalletCards size={21} /></div><span>Saldo calculado</span><strong>{money.format(balance / 100)}</strong><small>Entradas menos saídas dos lançamentos filtrados</small></article>
+        <article className="metric-card balance-card"><div className="metric-icon"><WalletCards size={21} /></div><span>Resultado dos filtros</span><strong>{money.format(balance / 100)}</strong><small>Entradas menos saídas dos lançamentos filtrados</small></article>
         <article className="metric-card"><div className="metric-top"><div className="metric-icon income"><ArrowDownLeft size={21} /></div></div><span>Entradas registradas</span><strong>{money.format(income / 100)}</strong><small>{visibleTransactions.filter((item) => item.kind === "income").length} lançamentos</small></article>
         <article className="metric-card"><div className="metric-top"><div className="metric-icon expense"><ArrowUpRight size={21} /></div></div><span>Saídas registradas</span><strong>{money.format(expense / 100)}</strong><small>{visibleTransactions.filter((item) => item.kind === "expense").length} lançamentos</small></article>
-        <article className="metric-card dues-card"><div className="metric-top"><div className="metric-icon gold"><CircleDollarSign size={21} /></div><em>{duesRate}%</em></div><span>Mensalidades</span><strong>{paidCount} de {dues.length}</strong><div className="progress"><i style={{ width: `${duesRate}%` }} /></div><small>{overdue.length} em atraso · {dues.filter((due) => due.status === "pending").length} pendentes</small></article>
+        <article className="metric-card dues-card"><div className="metric-top"><div className="metric-icon gold"><CircleDollarSign size={21} /></div><em>{duesReady ? `${duesRate}%` : "—"}</em></div><span>Mensalidades pagas (quantidade)</span><strong>{duesReady ? `${paidCount} de ${dues.length}` : "—"}</strong><div className="progress"><i style={{ width: `${duesRate}%` }} /></div><small>{duesReady ? `${overdue.length} em atraso · ${dues.filter((due) => due.status === "pending").length} pendentes` : duesLoading ? "Carregando mensalidades..." : "Dados indisponíveis para o período"}</small></article>
       </section>
 
       <SectionSearch value={query} onChange={setQuery} label="Buscar no Financeiro" placeholder="Buscar descrição, categoria ou ramo..." />
@@ -101,10 +124,9 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
         <label><span>Período das movimentações</span><select value={period} onChange={(event) => {
           const value = event.target.value;
           setPeriod(value);
-          if (value === "all") { setDateFrom(""); setDateTo(""); }
-          else if (value !== "custom") { const range = financePeriod(Number(value) as 3 | 6 | 12); setDateFrom(range.from); setDateTo(range.to); }
-        }}><option value="all">Todo o histórico</option><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12">Últimos 12 meses</option><option value="custom">Personalizado</option></select></label>
-        <p>Inclui o mês atual até hoje. Para outro intervalo, ajuste as datas abaixo. Os totais financeiros e o CSV acompanham os filtros.</p>
+          if (value !== "custom") { const range = financePeriod(Number(value) as 3 | 6 | 12); setDateFrom(range.from); setDateTo(range.to); }
+        }}><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12">Últimos 12 meses</option><option value="custom">Personalizado</option></select></label>
+        <p>{period === "custom" ? "Intervalo personalizado conforme as datas abaixo." : "Inclui o mês atual até hoje e os meses anteriores."} Busca, tipo e categoria também alteram os totais e o CSV. Mensalidades e pendências consideram os meses de referência abrangidos por essas datas.</p>
       </section>
       <section className="finance-filters" aria-label="Filtros das movimentações">
         <label><span>Tipo</span><select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}><option value="all">Todos</option><option value="income">Entradas</option><option value="expense">Saídas</option></select></label>
@@ -113,7 +135,7 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
         <DateInput label="Até" value={dateTo} onChange={(value) => { setDateTo(value); setPeriod("custom"); }} />
         <div className="filter-actions"><button className="clear-filters" onClick={clearFilters} disabled={!hasFilters}><FilterX size={14} /> Limpar</button><button className="clear-filters export-filtered" onClick={exportCsv} disabled={!visibleTransactions.length || invalidRange}><Download size={14} /> CSV</button></div>
       </section>
-      {invalidRange && <div className="inline-alert error" role="alert">A data inicial não pode ser posterior à data final.</div>}
+      {invalidRange && <div className="inline-alert error" role="alert">{rangeError}</div>}
 
       <section className="dashboard-grid">
         <article className="panel transactions-panel">
@@ -129,8 +151,9 @@ export function FinanceView({ transactions, dues, onOpenModal, onShowDues, onEdi
             </div>)}
           </div>
         </article>
-        <aside className="panel attention-panel"><div className="panel-head"><div><h2>Precisa de atenção</h2><p>Pendências de mensalidades</p></div></div><div className="attention-stat"><div><span>Mensalidades em atraso</span><strong>{money.format(overdue.reduce((sum, due) => sum + due.amountCents, 0) / 100)}</strong></div><b>{overdue.length}</b></div>{overdue.length ? <div className="attention-list">{overdue.slice(0, 3).map((due, index) => <div key={due.id}><span className={`member-dot tone-${index}`}>{initials(due.memberName)}</span><p><strong>{due.memberName}</strong><small>Ramo {due.patrol} · venceu em {shortDate.format(new Date(`${due.dueDate}T12:00:00`))}</small></p><b>{money.format(due.amountCents / 100)}</b></div>)}</div> : <div className="attention-empty"><CircleDollarSign size={24} /><strong>Nenhum atraso</strong><span>As mensalidades estão em dia nos dados atuais.</span></div>}<button className="outline-button" onClick={onShowDues}><FileText size={17} /> Gerenciar mensalidades</button></aside>
+        <aside className="panel attention-panel"><div className="panel-head"><div><h2>Precisa de atenção</h2><p>Pendências das referências do período</p></div></div>{duesReady ? <><div className="attention-stat"><div><span>Mensalidades em atraso</span><strong>{money.format(overdue.reduce((sum, due) => sum + due.amountCents, 0) / 100)}</strong></div><b>{overdue.length}</b></div>{overdue.length ? <div className="attention-list">{overdue.slice(0, 3).map((due, index) => <div key={due.id}><span className={`member-dot tone-${index}`}>{initials(due.memberName)}</span><p><strong>{due.memberName}</strong><small>Ramo {due.patrol} · venceu em {shortDate.format(new Date(`${due.dueDate}T12:00:00`))}</small></p><b>{money.format(due.amountCents / 100)}</b></div>)}</div> : <div className="attention-empty"><CircleDollarSign size={24} /><strong>Nenhum atraso</strong><span>As mensalidades estão em dia nos dados atuais.</span></div>}</> : <div className="attention-empty"><p role={duesError ? "alert" : "status"}>{duesError || (duesLoading ? "Carregando mensalidades..." : "Selecione um intervalo válido.")}</p>{duesError && <button className="outline-inline" onClick={() => setRetry(value => value + 1)}>Tentar novamente</button>}</div>}<button className="outline-button" onClick={onShowDues}><FileText size={17} /> Gerenciar mensalidades</button></aside>
       </section>
     </>
   );
 }
+

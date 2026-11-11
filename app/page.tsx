@@ -70,6 +70,14 @@ export default function Home() {
       throw error;
     }
   }, [session, logout]);
+  const loadReportDues = useCallback(async (from: string, to: string) => {
+    if (!session) throw new Error("Entre novamente para carregar o relatório.");
+    try { return await financeService.duesForRange(session.token, from, to); }
+    catch (error) {
+      if (error instanceof ApiError && error.status === 401) logout("Sua sessão expirou. Entre novamente.");
+      throw error;
+    }
+  }, [session, logout]);
   const invalidate = useCallback(() => { generation.current++; }, []);
   useEffect(() => {
     const timer = setTimeout(() => { void refresh(); }, 0);
@@ -153,6 +161,7 @@ export default function Home() {
     reference_month: string;
     amount: number;
     due_day: number;
+    repeat_months?: 1 | 6 | 12;
   }) {
     if (!session || writing.current) return;
 
@@ -180,14 +189,13 @@ export default function Home() {
     {mobileOpen && <button className="mobile-overlay" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
     <Sidebar view={view} mobileOpen={mobileOpen} onChooseView={chooseView} />
     <section className="workspace">
-      <Topbar overdueCount={dues.filter((due) => due.status === "overdue").length} onOpenMenu={() => setMobileOpen(true)} onShowDues={() => chooseView("dues")} />
+      <Topbar userName={session.user.name} loading={loading} saving={saving} onOpenMenu={() => setMobileOpen(true)} onRefresh={() => void refresh()} onLogout={() => logout()} />
       <div className="content">
-        <div className="remote-toolbar"><span>{session.user.name}</span><button disabled={saving || loading} onClick={() => void refresh()}>Atualizar</button><button disabled={saving} onClick={() => logout()}>Sair</button></div>
         <PageHeading view={view} disabled={saving || loading || Boolean(loadError)} onOpenTransaction={openNewTransaction} />
-        {view !== "dues" && <label className="remote-month">Mês final das mensalidades <input type="month" value={month} disabled={saving} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setLoading(true); setMonth(event.target.value); } }} /></label>}
-        <p className="month-note">Mensalidades: {duesPeriod === 1 ? "mês selecionado" : `${duesPeriod} meses até o mês selecionado`}. Movimentações financeiras mantêm seus próprios filtros de período.</p>
+        {view !== "dues" && view !== "finance" && <label className="remote-month">{view === "overview" ? (duesPeriod === 1 ? "Mês do resumo" : "Mês final do resumo") : view === "reports" ? "Mês final do relatório" : "Mês final das mensalidades"} <input type="month" value={month} disabled={saving} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setLoading(true); setMonth(event.target.value); } }} /></label>}
+        {view !== "reports" && view !== "finance" && <p className="month-note">{view === "overview" ? "Resumo financeiro e mensalidades: " : "Mensalidades: "} {duesPeriod === 1 ? "mês selecionado" : `${duesPeriod} meses até o mês selecionado`}. {view === "overview" ? "Entradas, saídas, saldo e movimentações recentes consideram esse mesmo período." : "Movimentações financeiras mantêm seus próprios filtros de período."}</p>}
         {loading ? <div className="remote-state" role="status">Carregando dados do grupo...</div> : loadError ? <div className="remote-state" role="alert"><p>{loadError}</p><button className="primary-button" onClick={() => void refresh()}>Tentar novamente</button></div> : <>
-          {view === "finance" && <FinanceView transactions={transactions} dues={dues} onOpenModal={openNewTransaction} onShowDues={() => chooseView("dues")} onEditTransaction={editTransaction} onDeleteTransaction={deleteTransaction} />}
+          {view === "finance" && <FinanceView transactions={transactions} onLoadDues={loadReportDues} onOpenModal={openNewTransaction} onShowDues={() => chooseView("dues")} onEditTransaction={editTransaction} onDeleteTransaction={deleteTransaction} />}
           
 {view === "dues" && <DuesView
   onLoadMembers={loadMembers}
@@ -205,8 +213,8 @@ export default function Home() {
   onGenerate={generateDues}
 />}
 
-          {view === "reports" && <ReportsView transactions={transactions} dues={dues} />}
-          {view === "overview" && <OverviewView transactions={transactions} dues={dues} onOpenTransaction={openNewTransaction} onChooseView={chooseView} onRefresh={() => void refresh()} />}
+          {view === "reports" && <ReportsView transactions={transactions} referenceMonth={month} onLoadDues={loadReportDues} />}
+          {view === "overview" && <OverviewView referenceMonth={month} period={duesPeriod} transactions={transactions} dues={dues} onOpenTransaction={openNewTransaction} onChooseView={chooseView} onRefresh={() => void refresh()} />}
         </>}
       </div>
     </section>
@@ -214,3 +222,4 @@ export default function Home() {
     <Toast message={toast?.message ?? ""} kind={toast?.kind} onClose={() => setToast(null)} />
   </main>;
 }
+

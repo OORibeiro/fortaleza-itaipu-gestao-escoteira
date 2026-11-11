@@ -1,5 +1,5 @@
 
-const ORIGIN = "https://grupo-escoteiro.onrender.com";
+const ORIGIN = "https://grupo-escoteiro-ia-gefi-docker-teste.onrender.com";
 
 const routes: Record<string, RegExp[]> = {
   GET: [/^finances$/, /^dues$/, /^dues\/members$/, /^branches$/],
@@ -8,6 +8,7 @@ const routes: Record<string, RegExp[]> = {
     /^auth\/change-password$/,
     /^finances$/,
     /^dues\/generate-member$/,
+    /^dues\/generate-member-series$/,
   ],
   PUT: [
     /^finances\/\d+$/,
@@ -125,3 +126,4 @@ export {
   proxy as PUT,
   proxy as DELETE,
 };
+

@@ -2,16 +2,18 @@
 
 import { DateInput } from "@/components/ui/DateInput";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Download, Printer, Scale, WalletCards } from "lucide-react";
 import type { Due, Transaction } from "@/types/app";
+import { monthRange, referenceMonths } from "@/utils/reportPeriod";
 import { money } from "@/utils/formatters";
 
-type PeriodPreset = "all" | "3m" | "6m" | "12m";
+type PeriodPreset = "month" | "3m" | "6m" | "12m" | "custom";
 
 type ReportsViewProps = {
   transactions: Transaction[];
-  dues: Due[];
+  referenceMonth: string;
+  onLoadDues: (from: string, to: string) => Promise<Due[]>;
 };
 
 const monthFormatter = new Intl.DateTimeFormat("pt-BR", { month: "short", year: "2-digit" });
@@ -33,8 +35,8 @@ function csvCell(value: string | number) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
 
-export function ReportsView({ transactions, dues }: ReportsViewProps) {
-  const [preset, setPreset] = useState<PeriodPreset>("all");
+export function ReportsView({ transactions, referenceMonth, onLoadDues }: ReportsViewProps) {
+  const [preset, setPreset] = useState<PeriodPreset>("month");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -46,20 +48,29 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
     }, parseLocalDate(transactions[0].occurredAt));
   }, [transactions]);
 
-  const presetRange = useMemo(() => {
-    if (preset === "all" || !latestTransactionDate) return { from: "", to: "" };
-    const months = preset === "3m" ? 3 : preset === "6m" ? 6 : 12;
-    const from = new Date(latestTransactionDate.getFullYear(), latestTransactionDate.getMonth() - (months - 1), 1);
-    const to = new Date(latestTransactionDate.getFullYear(), latestTransactionDate.getMonth() + 1, 0);
-    return {
-      from: `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`,
-      to: `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-${String(to.getDate()).padStart(2, "0")}`,
-    };
-  }, [preset, latestTransactionDate]);
-
-  const effectiveFrom = dateFrom || presetRange.from;
-  const effectiveTo = dateTo || presetRange.to;
-  const invalidRange = Boolean(effectiveFrom && effectiveTo && effectiveFrom > effectiveTo);
+  const range = monthRange(referenceMonth, preset === "3m" ? 3 : preset === "6m" ? 6 : preset === "12m" ? 12 : 1);
+  const effectiveFrom = preset === "custom" ? dateFrom : range.from;
+  const effectiveTo = preset === "custom" ? dateTo : range.to;
+  let rangeError = "";
+  try { referenceMonths(effectiveFrom, effectiveTo); }
+  catch (error) { rangeError = error instanceof Error ? error.message : "Período inválido."; }
+  const invalidRange = Boolean(rangeError);
+  const rangeKey = `${effectiveFrom}/${effectiveTo}`;
+  const [retry, setRetry] = useState(0);
+  const [duesState, setDuesState] = useState<{ key: string; rows: Due[]; error: string; retry: number }>({key:"", rows:[], error:"", retry:0});
+  useEffect(() => {
+    if (invalidRange) return;
+    let cancelled = false;
+    void onLoadDues(effectiveFrom, effectiveTo).then(
+      rows => { if (!cancelled) setDuesState({key:rangeKey, rows, error:"", retry}); },
+      error => { if (!cancelled) setDuesState({key:rangeKey, rows:[], error:error instanceof Error ? error.message : "Falha ao carregar mensalidades.", retry}); },
+    );
+    return () => { cancelled = true; };
+  }, [onLoadDues, effectiveFrom, effectiveTo, invalidRange, rangeKey, retry]);
+  const duesLoading = !invalidRange && (duesState.key !== rangeKey || duesState.retry !== retry);
+  const duesError = duesState.key === rangeKey ? duesState.error : "";
+  const dues = duesState.key === rangeKey && !duesError ? duesState.rows : [];
+  const reportIncomplete = invalidRange || duesLoading || Boolean(duesError);
 
   const filteredTransactions = useMemo(() => invalidRange ? [] : transactions.filter((item) => {
     const day = item.occurredAt.slice(0, 10);
@@ -119,7 +130,7 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
       cursor.setMonth(cursor.getMonth() + 1);
     }
 
-    return rows.slice(-12);
+    return rows;
   }, [filteredTransactions, effectiveFrom, effectiveTo, latestTransactionDate]);
 
   const maxMonthlyValue = Math.max(1, ...monthlyData.flatMap((item) => [item.income, item.expense]));
@@ -165,6 +176,7 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
   }
 
   function exportReport() {
+    if (reportIncomplete) return;
     const rows: Array<Array<string | number>> = [
       ["RELATÓRIO FINANCEIRO"],
       ["Período inicial", effectiveFrom || "Todos"],
@@ -211,26 +223,29 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
         <div className="report-presets">
           <span>Período</span>
           <div>
-            {(["all", "3m", "6m", "12m"] as const).map((item) => (
-              <button key={item} className={preset === item && !dateFrom && !dateTo ? "active" : ""} onClick={() => applyPreset(item)}>
-                {item === "all" ? "Tudo" : item === "3m" ? "3 meses" : item === "6m" ? "6 meses" : "12 meses"}
+            {(["month", "3m", "6m", "12m"] as const).map((item) => (
+              <button key={item} className={preset === item ? "active" : ""} onClick={() => applyPreset(item)}>
+                {item === "month" ? "Mês selecionado" : item === "3m" ? "3 meses" : item === "6m" ? "6 meses" : "12 meses"}
               </button>
             ))}
           </div>
         </div>
-        <DateInput label="De" value={dateFrom} onChange={(value) => { setDateFrom(value); setPreset("all"); }} />
-        <DateInput label="Até" value={dateTo} onChange={(value) => { setDateTo(value); setPreset("all"); }} />
-        <div className="report-actions"><button className="report-print" onClick={() => window.print()} disabled={invalidRange}><Printer size={16} /> Imprimir / PDF</button><button className="report-export" onClick={exportReport} disabled={invalidRange || (!filteredTransactions.length && !filteredDues.length)}><Download size={16} /> Exportar CSV</button></div>
+        <DateInput label="De" value={effectiveFrom} onChange={(value) => { setDateFrom(value); setDateTo(effectiveTo); setPreset("custom"); }} />
+        <DateInput label="Até" value={effectiveTo} onChange={(value) => { setDateTo(value); setDateFrom(effectiveFrom); setPreset("custom"); }} />
+        <div className="report-actions"><button className="report-print" onClick={() => window.print()} disabled={reportIncomplete}><Printer size={16} /> Imprimir / PDF</button><button className="report-export" onClick={exportReport} disabled={reportIncomplete || (!filteredTransactions.length && !filteredDues.length)}><Download size={16} /> Exportar CSV</button></div>
       </section>
 
-      {invalidRange && <div className="inline-alert error" role="alert">A data inicial não pode ser posterior à data final.</div>}
-      <div className="print-report-header"><strong>Grupo Escoteiro 45º — Fortaleza de Itaipu</strong><span>Relatório financeiro · {effectiveFrom || "início"} a {effectiveTo || "atual"}</span></div>
+      {invalidRange && <div className="inline-alert error" role="alert">{rangeError}</div>}
+      <p className="month-note">Movimentações pela data do lançamento; mensalidades pelo mês de referência. Os atalhos incluem o mês final escolhido e os meses anteriores completos.</p>
+      {duesLoading && <p role="status">Carregando mensalidades de todo o período...</p>}
+      {duesError && <div role="alert" className="inline-alert error">{duesError} <button onClick={() => setRetry(value => value + 1)}>Tentar novamente</button></div>}
+      <div className="print-report-header"><strong>Grupo Escoteiro 455º — Fortaleza de Itaipu</strong><span>Relatório financeiro · {effectiveFrom || "início"} a {effectiveTo || "atual"}</span></div>
 
       <section className="report-metrics" aria-label="Resumo do relatório">
         <article><span className="report-metric-icon income"><ArrowDownLeft size={18} /></span><div><small>Entradas</small><strong>{money.format(totals.income / 100)}</strong><em>{filteredTransactions.filter((item) => item.kind === "income").length} lançamentos</em></div></article>
         <article><span className="report-metric-icon expense"><ArrowUpRight size={18} /></span><div><small>Saídas</small><strong>{money.format(totals.expense / 100)}</strong><em>{filteredTransactions.filter((item) => item.kind === "expense").length} lançamentos</em></div></article>
         <article><span className={`report-metric-icon ${totals.result >= 0 ? "result-positive" : "result-negative"}`}><Scale size={18} /></span><div><small>Resultado</small><strong className={totals.result < 0 ? "negative-value" : ""}>{money.format(totals.result / 100)}</strong><em>Entradas menos saídas</em></div></article>
-        <article><span className="report-metric-icon dues"><WalletCards size={18} /></span><div><small>Mensalidades recebidas</small><strong>{duesSummary.rate}%</strong><em>{money.format(duesSummary.received / 100)} de {money.format(duesSummary.expected / 100)}</em></div></article>
+        <article><span className="report-metric-icon dues"><WalletCards size={18} /></span><div><small>Mensalidades quitadas (valor)</small><strong>{reportIncomplete ? "—" : `${duesSummary.rate}%`}</strong><em>{reportIncomplete ? "Aguardando dados completos" : `${money.format(duesSummary.received / 100)} de ${money.format(duesSummary.expected / 100)}`}</em></div></article>
       </section>
 
       <section className="reports-grid report-main-grid">
@@ -273,8 +288,8 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
 
       <section className="report-bottom-grid">
         <article className="panel report-dues-panel">
-          <div className="panel-head"><div><h2>Situação das mensalidades</h2><p>Cobranças no período selecionado</p></div></div>
-          <div className="report-dues-content">
+          <div className="panel-head"><div><h2>Situação das mensalidades</h2><p>Cobranças por referência, independentemente da data do pagamento</p></div></div>
+          {reportIncomplete ? <div className="report-empty">Mensalidades indisponíveis até concluir a consulta do período.</div> : <div className="report-dues-content">
             <div className="report-dues-rate"><strong>{duesSummary.rate}%</strong><span>do valor previsto recebido</span></div>
             <div className="report-dues-progress" aria-label={`${duesSummary.rate}% das mensalidades recebidas`}><i style={{ width: `${duesSummary.rate}%` }} /></div>
             <div className="report-dues-statuses">
@@ -282,7 +297,7 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
               <div><span className="due-status-icon pending"><WalletCards size={16} /></span><p><strong>{duesSummary.pending}</strong><small>Pendentes</small></p></div>
               <div><span className="due-status-icon overdue"><AlertTriangle size={16} /></span><p><strong>{duesSummary.overdue}</strong><small>Em atraso</small></p></div>
             </div>
-          </div>
+          </div>}
         </article>
 
         <article className="panel report-summary-panel">
@@ -298,3 +313,4 @@ export function ReportsView({ transactions, dues }: ReportsViewProps) {
     </>
   );
 }
+

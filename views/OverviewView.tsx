@@ -9,10 +9,13 @@ import {
   Plus,
   RotateCcw,
 } from "lucide-react";
+import { overviewTransactions } from "@/utils/overviewPeriod";
 import type { Due, Transaction, View } from "@/types/app";
 import { money, shortDate } from "@/utils/formatters";
 
 type OverviewViewProps = {
+  referenceMonth: string;
+  period: number;
   transactions: Transaction[];
   dues: Due[];
   onOpenTransaction: () => void;
@@ -20,13 +23,14 @@ type OverviewViewProps = {
   onRefresh: () => void;
 };
 
-export function OverviewView({ transactions, dues, onOpenTransaction, onChooseView, onRefresh }: OverviewViewProps) {
-  const income = transactions.filter((item) => item.kind === "income").reduce((sum, item) => sum + item.amountCents, 0);
-  const expense = transactions.filter((item) => item.kind === "expense").reduce((sum, item) => sum + item.amountCents, 0);
+export function OverviewView({ transactions, referenceMonth, period, dues, onOpenTransaction, onChooseView, onRefresh }: OverviewViewProps) {
+  const periodTransactions = overviewTransactions(transactions, referenceMonth, period);
+  const income = periodTransactions.filter((item) => item.kind === "income").reduce((sum, item) => sum + item.amountCents, 0);
+  const expense = periodTransactions.filter((item) => item.kind === "expense").reduce((sum, item) => sum + item.amountCents, 0);
   const balance = income - expense;
   const pendingDues = dues.filter((due) => due.status !== "paid");
   const pendingValue = pendingDues.reduce((sum, due) => sum + due.amountCents, 0);
-  const recentTransactions = [...transactions].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, 4);
+  const recentTransactions = [...periodTransactions].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, 4);
 
   return (
     <>
@@ -56,8 +60,8 @@ export function OverviewView({ transactions, dues, onOpenTransaction, onChooseVi
 
       <section className="overview-grid overview-secondary-grid">
         <article className="panel recent-panel">
-          <div className="panel-head"><div><h2>Movimentações recentes</h2><p>Últimos lançamentos registrados</p></div><button onClick={() => onChooseView("finance")}>Ver todas</button></div>
-          {recentTransactions.length ? <div className="recent-list">{recentTransactions.map((item) => <div key={item.id}><span className={item.kind}>{item.kind === "income" ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}</span><p><strong>{item.description}</strong><small>{shortDate.format(new Date(item.occurredAt))} · {item.category}</small></p><b className={item.kind}>{item.kind === "income" ? "+ " : "− "}{money.format(item.amountCents / 100)}</b></div>)}</div> : <div className="rich-empty-state compact"><FileText size={23} /><strong>Sem movimentações</strong><p>Cadastre um lançamento para ele aparecer aqui.</p></div>}
+          <div className="panel-head"><div><h2>Movimentações recentes</h2><p>Últimos lançamentos do período selecionado</p></div><button onClick={() => onChooseView("finance")}>Ver todas</button></div>
+          {recentTransactions.length ? <div className="recent-list">{recentTransactions.map((item) => <div key={item.id}><span className={item.kind}>{item.kind === "income" ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}</span><p><strong>{item.description}</strong><small>{shortDate.format(new Date(item.occurredAt))} · {item.category}</small></p><b className={item.kind}>{item.kind === "income" ? "+ " : "− "}{money.format(item.amountCents / 100)}</b></div>)}</div> : <div className="rich-empty-state compact"><FileText size={23} /><strong>Sem movimentações</strong><p>Nenhum lançamento encontrado no período selecionado.</p></div>}
         </article>
 
         <article className="panel local-data-panel">
@@ -68,3 +72,4 @@ export function OverviewView({ transactions, dues, onOpenTransaction, onChooseVi
     </>
   );
 }
+

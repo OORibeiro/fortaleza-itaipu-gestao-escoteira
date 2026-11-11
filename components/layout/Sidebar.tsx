@@ -1,4 +1,3 @@
-import { Cloud } from "lucide-react";
 import { navItems } from "@/data/navigation";
 import type { View } from "@/types/app";
 import { ScoutMark } from "@/components/ui/ScoutMark";
@@ -39,8 +38,8 @@ export function Sidebar({ view, mobileOpen, onChooseView }: SidebarProps) {
           <strong>Módulo Financeiro</strong>
           <span>Gestão financeira</span>
         </div>
-        <Cloud size={17} />
       </div>
     </aside>
   );
 }
+

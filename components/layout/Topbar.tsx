@@ -1,21 +1,33 @@
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { Bell, Menu } from "lucide-react";
+import { LogOut, Menu, RefreshCw } from "lucide-react";
 
 type TopbarProps = {
-  overdueCount: number;
+  userName: string;
+  loading: boolean;
+  saving: boolean;
   onOpenMenu: () => void;
-  onShowDues: () => void;
+  onRefresh: () => void;
+  onLogout: () => void;
 };
 
-export function Topbar({ overdueCount, onOpenMenu, onShowDues }: TopbarProps) {
+export function Topbar({ userName, loading, saving, onOpenMenu, onRefresh, onLogout }: TopbarProps) {
   return (
-    <header className="topbar">
+    <header className="topbar account-topbar">
+      <button type="button" className="icon-button mobile-menu" aria-label="Abrir menu" onClick={onOpenMenu}><Menu size={20} /></button>
       <ThemeToggle />
-      <button className="icon-button mobile-menu" aria-label="Abrir menu" onClick={onOpenMenu}><Menu size={20} /></button>
-      <button className="icon-button notification" aria-label={overdueCount ? `${overdueCount} mensalidades em atraso` : "Sem mensalidades em atraso"} title={overdueCount ? `${overdueCount} mensalidades em atraso` : "Sem mensalidades em atraso"} onClick={onShowDues}>
-        <Bell size={20} />
-        {overdueCount > 0 && <span className="notification-count">{overdueCount > 9 ? "9+" : overdueCount}</span>}
-      </button>
+      <div className="account-controls">
+        <div className="account-profile" title={userName}>
+          <span className="account-name">{userName}</span>
+        </div>
+        <button type="button" className="account-button" disabled={saving || loading} aria-busy={loading} onClick={onRefresh}>
+          <RefreshCw size={16} aria-hidden="true" className={loading ? "refresh-spinning" : undefined} />
+          <span>{loading ? "Atualizando..." : "Atualizar"}</span>
+        </button>
+        <button type="button" className="account-button account-logout" disabled={saving} onClick={onLogout}>
+          <LogOut size={16} aria-hidden="true" /><span>Logout</span>
+        </button>
+      </div>
     </header>
   );
 }
+

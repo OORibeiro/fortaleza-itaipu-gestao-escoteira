@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Clock3, Download, WalletCards, PlusCircle,
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { SectionSearch, normalizeSearch } from "@/components/ui/SectionSearch";
 import { DueEditForm } from "@/components/modals/DueEditForm";
+import { dueSchedule } from "@/utils/dueSchedule";
 import type { Due } from "@/types/app";
 import type { Branch, Member } from "@/services/financeService";
 import { initials, money, shortDate } from "@/utils/formatters";
@@ -44,7 +45,7 @@ export function DuesView({
   branches: Branch[];
   saving: boolean;
   onLoadMembers: (branchId: number) => Promise<Member[]>;
-  onGenerate: (input: { branch_id: number; member_id: number; reference_month: string; amount: number; due_day: number }) => Promise<void>;
+  onGenerate: (input: { branch_id: number; member_id: number; reference_month: string; amount: number; due_day: number; repeat_months?: 1 | 6 | 12 }) => Promise<void>;
 }) {
   const [editingDue, setEditingDue] = useState<Due | null>(null);
   const [query, setQuery] = useState("");
@@ -57,6 +58,8 @@ export function DuesView({
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueDateText, setDueDateText] = useState("");
+  const [repeatMonths, setRepeatMonths] = useState<1 | 6 | 12>(1);
+  const schedule = dueDate.slice(0, 7) === referenceMonth ? dueSchedule(referenceMonth, Number(dueDate.slice(8, 10)), repeatMonths) : [];
   const [generateError, setGenerateError] = useState("");
   const monthDues = dues;
   const lastDay = new Date(
@@ -134,7 +137,8 @@ export function DuesView({
     }
 
     const reference = `${referenceMonth}-01`;
-    if (!window.confirm(`Gerar mensalidade para ${selectedMember.name}, referente a ${monthLabel(referenceMonth)}, no valor de ${money.format(value)} e vencimento em ${dueDate.split("-").reverse().join("/")}?`)) return;
+    if (repeatMonths > 1 && schedule.length !== repeatMonths) { setGenerateError("Confira a data de vencimento para gerar as mensalidades."); return; }
+    if (!window.confirm(repeatMonths > 1 ? `Gerar ${repeatMonths} mensalidades para ${selectedMember.name}, de ${monthLabel(referenceMonth)} até ${monthLabel(schedule[repeatMonths - 1].slice(0,7))}, por ${money.format(value)} cada (total previsto ${money.format(value * repeatMonths)})? Cobranças existentes serão mantidas, sem duplicar.` : `Gerar mensalidade para ${selectedMember.name}, referente a ${monthLabel(referenceMonth)}, no valor de ${money.format(value)} e vencimento em ${dueDate.split("-").reverse().join("/")}?`)) return;
 
     try {
       await onGenerate({
@@ -143,9 +147,11 @@ export function DuesView({
         reference_month: reference,
         amount: value,
         due_day: day,
+        repeat_months: repeatMonths,
       });
       setShowGenerator(false);
       setAmount("");
+      setRepeatMonths(1);
     } catch (error) {
       setGenerateError(error instanceof Error ? error.message : "Não foi possível gerar as mensalidades.");
     }
@@ -260,9 +266,19 @@ export function DuesView({
               </div>
               <small id="due-date-hint">Formato: dia/mês/ano. Escolha uma data dentro do mês de referência.</small>
             </div>
+            <div className="dues-repeat-control">
+              <span id="dues-repeat-label">Gerar mensalidades para</span>
+              <div role="group" aria-labelledby="dues-repeat-label" style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                {([1, 6, 12] as const).map(count => <button key={count} type="button" className="outline-inline" aria-pressed={repeatMonths === count} disabled={saving} onClick={() => setRepeatMonths(count)}>
+                  <CalendarDays size={17} />{count === 1 ? "Somente este mês" : `${count} meses`}
+                </button>)}
+              </div>
+              <p>{repeatMonths > 1 ? `${repeatMonths} cobranças: mês selecionado e os ${repeatMonths - 1} seguintes. Não registra pagamentos.` : "Será criada uma cobrança somente no mês selecionado."}</p>
+              {repeatMonths > 1 && schedule.length === repeatMonths && <><ul>{schedule.map(date => <li key={date}>{date.split("-").reverse().join("/")}</li>)}</ul><small>Se o dia não existir em algum mês, será usado o último dia desse mês. Cobranças existentes serão mantidas.</small></>}
+            </div>
             {generateError && <p role="alert" style={{ color: "var(--danger, #b91c1c)" }}>{generateError}</p>}
             <div className="dues-generator-actions"><p>A cobrança será criada apenas para a pessoa selecionada.</p>
-              <button className="primary-button" type="submit" disabled={saving || !memberId || membersLoading || Boolean(membersError)}><PlusCircle size={16} />{saving ? "Gerando..." : "Gerar mensalidade"}</button>
+              <button className="primary-button" type="submit" disabled={saving || !memberId || membersLoading || Boolean(membersError)}><PlusCircle size={16} />{saving ? "Gerando..." : repeatMonths > 1 ? `Gerar ${repeatMonths} mensalidades` : "Gerar mensalidade"}</button>
               <button className="outline-inline" type="button" disabled={saving} onClick={() => setShowGenerator(false)}>Cancelar</button>
             </div>
           </form>
@@ -319,3 +335,4 @@ export function DuesView({
     </>
   );
 }
+
