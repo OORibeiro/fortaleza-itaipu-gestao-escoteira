@@ -269,7 +269,7 @@ export function DuesView({
             <div className="dues-repeat-control">
               <span id="dues-repeat-label">Gerar mensalidades para</span>
               <div role="group" aria-labelledby="dues-repeat-label" style={{display:"flex", gap:8, flexWrap:"wrap"}}>
-                {([1, 6, 12] as const).map(count => <button key={count} type="button" className="outline-inline" aria-pressed={repeatMonths === count} disabled={saving} onClick={() => setRepeatMonths(count)}>
+                {([1 /*, 6, 12 */] as const).map(count => <button key={count} type="button" className="outline-inline" aria-pressed={repeatMonths === count} disabled={saving} onClick={() => setRepeatMonths(count)}>
                   <CalendarDays size={17} />{count === 1 ? "Somente este mês" : `${count} meses`}
                 </button>)}
               </div>

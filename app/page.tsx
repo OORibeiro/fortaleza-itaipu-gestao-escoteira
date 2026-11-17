@@ -192,7 +192,7 @@ export default function Home() {
       <Topbar userName={session.user.name} loading={loading} saving={saving} onOpenMenu={() => setMobileOpen(true)} onRefresh={() => void refresh()} onLogout={() => logout()} />
       <div className="content">
         <PageHeading view={view} disabled={saving || loading || Boolean(loadError)} onOpenTransaction={openNewTransaction} />
-        {view !== "dues" && view !== "finance" && <label className="remote-month">{view === "overview" ? (duesPeriod === 1 ? "Mês do resumo" : "Mês final do resumo") : view === "reports" ? "Mês final do relatório" : "Mês final das mensalidades"} <input type="month" value={month} disabled={saving} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setLoading(true); setMonth(event.target.value); } }} /></label>}
+        {view !== "dues" && view !== "finance" && <label className="remote-month">{view === "overview" ? (duesPeriod === 1 ? "Mês do resumo" : "Mês final do resumo") : view === "reports" ? "Mês para a opção Mês selecionado" : "Mês final das mensalidades"} <input type="month" value={month} disabled={saving} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setLoading(true); setMonth(event.target.value); } }} /></label>}
         {view !== "reports" && view !== "finance" && <p className="month-note">{view === "overview" ? "Resumo financeiro e mensalidades: " : "Mensalidades: "} {duesPeriod === 1 ? "mês selecionado" : `${duesPeriod} meses até o mês selecionado`}. {view === "overview" ? "Entradas, saídas, saldo e movimentações recentes consideram esse mesmo período." : "Movimentações financeiras mantêm seus próprios filtros de período."}</p>}
         {loading ? <div className="remote-state" role="status">Carregando dados do grupo...</div> : loadError ? <div className="remote-state" role="alert"><p>{loadError}</p><button className="primary-button" onClick={() => void refresh()}>Tentar novamente</button></div> : <>
           {view === "finance" && <FinanceView transactions={transactions} onLoadDues={loadReportDues} onOpenModal={openNewTransaction} onShowDues={() => chooseView("dues")} onEditTransaction={editTransaction} onDeleteTransaction={deleteTransaction} />}
@@ -222,4 +222,5 @@ export default function Home() {
     <Toast message={toast?.message ?? ""} kind={toast?.kind} onClose={() => setToast(null)} />
   </main>;
 }
+
 

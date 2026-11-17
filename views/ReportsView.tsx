@@ -5,6 +5,7 @@ import { DateInput } from "@/components/ui/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Download, Printer, Scale, WalletCards } from "lucide-react";
 import type { Due, Transaction } from "@/types/app";
+import { financePeriod } from "@/utils/financePeriod";
 import { monthRange, referenceMonths } from "@/utils/reportPeriod";
 import { money } from "@/utils/formatters";
 
@@ -37,6 +38,7 @@ function csvCell(value: string | number) {
 
 export function ReportsView({ transactions, referenceMonth, onLoadDues }: ReportsViewProps) {
   const [preset, setPreset] = useState<PeriodPreset>("month");
+  const [rollingRange, setRollingRange] = useState(() => financePeriod(3));
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -48,7 +50,7 @@ export function ReportsView({ transactions, referenceMonth, onLoadDues }: Report
     }, parseLocalDate(transactions[0].occurredAt));
   }, [transactions]);
 
-  const range = monthRange(referenceMonth, preset === "3m" ? 3 : preset === "6m" ? 6 : preset === "12m" ? 12 : 1);
+  const range = preset === "month" ? monthRange(referenceMonth, 1) : rollingRange;
   const effectiveFrom = preset === "custom" ? dateFrom : range.from;
   const effectiveTo = preset === "custom" ? dateTo : range.to;
   let rangeError = "";
@@ -170,6 +172,9 @@ export function ReportsView({ transactions, referenceMonth, onLoadDues }: Report
   }, [filteredDues]);
 
   function applyPreset(next: PeriodPreset) {
+    if (next === "3m" || next === "6m" || next === "12m") {
+      setRollingRange(financePeriod(next === "3m" ? 3 : next === "6m" ? 6 : 12));
+    }
     setPreset(next);
     setDateFrom("");
     setDateTo("");
@@ -236,7 +241,7 @@ export function ReportsView({ transactions, referenceMonth, onLoadDues }: Report
       </section>
 
       {invalidRange && <div className="inline-alert error" role="alert">{rangeError}</div>}
-      <p className="month-note">Movimentações pela data do lançamento; mensalidades pelo mês de referência. Os atalhos incluem o mês final escolhido e os meses anteriores completos.</p>
+      <p className="month-note"></p>
       {duesLoading && <p role="status">Carregando mensalidades de todo o período...</p>}
       {duesError && <div role="alert" className="inline-alert error">{duesError} <button onClick={() => setRetry(value => value + 1)}>Tentar novamente</button></div>}
       <div className="print-report-header"><strong>Grupo Escoteiro 455º — Fortaleza de Itaipu</strong><span>Relatório financeiro · {effectiveFrom || "início"} a {effectiveTo || "atual"}</span></div>
@@ -313,4 +318,5 @@ export function ReportsView({ transactions, referenceMonth, onLoadDues }: Report
     </>
   );
 }
+
 

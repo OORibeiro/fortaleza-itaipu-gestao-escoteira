@@ -38,7 +38,7 @@ export function OverviewView({ transactions, referenceMonth, period, dues, onOpe
         <article><span className="overview-icon"><Banknote size={22} /></span><div><p>Saldo calculado</p><strong>{money.format(balance / 100)}</strong></div></article>
         <article><span className="overview-icon gold-bg"><ArrowDownLeft size={22} /></span><div><p>Entradas</p><strong>{money.format(income / 100)}</strong></div></article>
         <article><span className="overview-icon blue-bg"><ArrowUpRight size={22} /></span><div><p>Saídas</p><strong>{money.format(expense / 100)}</strong></div></article>
-        <article><span className="overview-icon coral-bg"><CircleDollarSign size={22} /></span><div><p>Mensalidades pendentes</p><strong>{money.format(pendingValue / 100)}</strong></div></article>
+        <article><span className="overview-icon coral-bg"><CircleDollarSign size={22} /></span><div><p>Mensalidades em atraso</p><strong>{money.format(pendingValue / 100)}</strong></div></article>
       </section>
 
       <section className="overview-grid">

@@ -120,13 +120,12 @@ export function FinanceView({ transactions, onLoadDues, onOpenModal, onShowDues,
       </section>
 
       <SectionSearch value={query} onChange={setQuery} label="Buscar no Financeiro" placeholder="Buscar descrição, categoria ou ramo..." />
-      <section className="finance-period-panel" aria-label="Período financeiro">
-        <label><span>Período das movimentações</span><select value={period} onChange={(event) => {
+      <section className="finance-period-panel" aria-label="Período financeiro" style={{ justifyContent: "center", textAlign: "center" }}>
+        <label style={{ width: "100%", maxWidth: 280 }}><span>Período das movimentações</span><select value={period} onChange={(event) => {
           const value = event.target.value;
           setPeriod(value);
           if (value !== "custom") { const range = financePeriod(Number(value) as 3 | 6 | 12); setDateFrom(range.from); setDateTo(range.to); }
         }}><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12">Últimos 12 meses</option><option value="custom">Personalizado</option></select></label>
-        <p>{period === "custom" ? "Intervalo personalizado conforme as datas abaixo." : "Inclui o mês atual até hoje e os meses anteriores."} Busca, tipo e categoria também alteram os totais e o CSV. Mensalidades e pendências consideram os meses de referência abrangidos por essas datas.</p>
       </section>
       <section className="finance-filters" aria-label="Filtros das movimentações">
         <label><span>Tipo</span><select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}><option value="all">Todos</option><option value="income">Entradas</option><option value="expense">Saídas</option></select></label>
@@ -156,4 +155,5 @@ export function FinanceView({ transactions, onLoadDues, onOpenModal, onShowDues,
     </>
   );
 }
+
 
